@@ -273,22 +273,14 @@ class ChordNode:
                 print(f"[udp_listener] Error: {e}")
 
 
-    def handle_find_ok(self, parts):
+    def handle_find_ok(self, node_id, ip, port):
         try:
-            # parts = ['FNDOK', id, ip, port]
-            node_id = int(parts[1])
-            ip = parts[2]
-            port = int(parts[3])
-
             print(f"[HandleFindOK] Received successor: ID={node_id}, IP={ip}, Port={port}")
-
-            # You can use this to update your finger table or join process
-            # Example: set as successor if currently unknown
             if self.successor[0] == self.id:
                 self.successor = (node_id, ip, port)
-
         except Exception as e:
             print(f"[HandleFindOK] Error: {e}")
+
 
 
     def notify(self, potential_pred):
@@ -353,6 +345,8 @@ class ChordNode:
         except:
             return False
 
+            
+
 
     def fix_loop(self):
         i = 0
@@ -376,6 +370,17 @@ class ChordNode:
             except Exception as e:
                 print(f"[FixFingers] Error fixing finger {i}: {e}")
 
+
+
+    def is_node_alive(self, ip, port):
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.settimeout(1)
+            sock.sendto(b'PING', (ip, port))
+            data, _ = sock.recvfrom(1024)
+            return data == b'PONG'
+        except:
+            return False
 
 
     def find_successor(self, id):
