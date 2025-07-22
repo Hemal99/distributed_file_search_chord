@@ -359,7 +359,7 @@ class ChordNode:
                     self.finger[i] = successor
 
                 # Print finger table nicely
-                print(f"\n[{self.username}] Finger Table:")
+                print(f"\n[{self.username}] [{self.id}] Finger Table:")
                 print(f"{'Index':<5} {'Start':<5} {'Node ID':<10} {'IP':<15} {'Port'}")
                 for idx in range(FINGER_SIZE):
                     start_val = (self.id + 2 ** idx) % MAX_ID
@@ -482,15 +482,26 @@ if __name__ == "__main__":
     if len(sys.argv) != 5:
         print("Usage: chord_node.py <ip> <chord_port> <rest_port> <username>")
     else:
-        n = ChordNode(sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4])
-        n.start()
-        while True:
-            cmd = input("> ")
-            if cmd.startswith("search"):
-                _, f = cmd.split(maxsplit=1)
-                n.search(f)
-            elif cmd == "files":
-                print(n.files)
-            elif cmd == "leave":
+        try:
+            n = ChordNode(sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4])
+            n.start()
+            while True:
+                cmd = input("> ")
+                if cmd.startswith("search"):
+                    _, f = cmd.split(maxsplit=1)
+                    n.search(f)
+                elif cmd == "files":
+                    print(n.files)
+                elif cmd == "leave":
+                    n.leave()
+                    break
+        except KeyboardInterrupt:
+            print("\nKeyboardInterrupt detected. Attempting to leave the Chord network...")
+            if 'n' in locals() and isinstance(n, ChordNode): # Ensure 'n' exists and is a ChordNode instance
                 n.leave()
-                break
+            sys.exit(0) # Exit cleanly after handling the interrupt
+        except Exception as e:
+            print(f"Error in ChordNode: {e}")
+            if 'n' in locals() and isinstance(n, ChordNode): # Ensure 'n' exists and is a ChordNode instance
+                n.leave()
+            sys.exit(1)
