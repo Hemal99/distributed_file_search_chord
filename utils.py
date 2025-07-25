@@ -13,6 +13,11 @@ def in_interval(value, start, end, inclusive_right=False):
         return value > start or value < end or (inclusive_right and value == end)
 
 
+def format_message(body: str) -> str:
+    """Prefix message body with its length in 4-digit format"""
+    length = len(body) + 5  # +1 for space after length
+    return f"{length:04} {body}"
+
 
 def pack_msg(msg: str) -> bytes:
     body = msg.encode()

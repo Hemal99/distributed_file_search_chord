@@ -1,6 +1,6 @@
 import threading, time, socket, random
 from config import *
-from utils import sha1_hash, in_interval, pack_msg, unpack_msg,numeric_id
+from utils import sha1_hash, in_interval, pack_msg, unpack_msg,numeric_id, format_message
 import file_service
 
 class ChordNode:
@@ -37,8 +37,6 @@ class ChordNode:
         threading.Thread(target=self.check_predecessor_loop, daemon=True).start()
         threading.Thread(target=file_service.start_rest, args=(self.rest_port,self), daemon=True).start()
 
-        
-
         self.register_and_join()
         print(f"Node {self.username} ID {self.id} started. Files: {self.files}")
 
@@ -50,11 +48,11 @@ class ChordNode:
         decoded = unpack_msg(resp)
         parts = decoded.split()
 
-        if parts[0] != 'REGOK':
+        if parts[1] != 'REGOK':
             print("BS error:", decoded)
             return
 
-        no = parts[1]
+        no = parts[2]
         # Handle error codes explicitly:
         if no == '9998':
             print("[register_and_join] Bootstrap error: already registered")
@@ -76,39 +74,16 @@ class ChordNode:
         else:
             print("[register_and_join] No peers returned by bootstrap, starting new ring")
 
-
-    # def do_join(self, ip, port):
-    #     msg = f"JOIN {self.id} {self.ip} {self.chord_port}"
-    #     self.sock.sendto(pack_msg(msg), (ip, port))
-    #     self.sock.settimeout(3)  # wait max 3 seconds for join response
-    #     try:
-    #         while True:
-    #             resp, _ = self.sock.recvfrom(UDP_BUFFER)
-    #             parts = unpack_msg(resp).split()
-    #             if parts[0] == 'SUCC' and len(parts) == 4:
-    #                 self.successor = (int(parts[1]), parts[2], int(parts[3]))
-    #                 print(f"Successor updated to: {self.successor}")
-    #                 break
-    #             elif parts[0] == 'JOINOK' and parts[1] == '0':
-    #                 self.successor = (numeric_id(ip, port), ip, port)
-    #                 break
-    #             else:
-    #                 # Ignore unexpected message, keep waiting for SUCC or JOINOK
-    #                 print(f"[do_join] Ignored message while waiting for join response: {parts[0]}")
-    #     except socket.timeout:
-    #         print("JOIN failed: timeout waiting for SUCC or JOINOK")
-    #     finally:
-    #         self.sock.settimeout(None)  # reset timeout to blocking
-
     def do_join(self, ip, port):
         self.join_response = None
         self.join_event.clear()
 
-        msg = f"JOIN {self.id} {self.ip} {self.chord_port}"
+        msg = format_message(f"JOIN {self.id} {self.ip} {self.chord_port}")
         self.sock.sendto(pack_msg(msg), (ip, port))
 
-        if self.join_event.wait(timeout=5):  # Wait for udp_listener to set the event
+        if self.join_event.wait(timeout=5):  
             if self.join_response and self.join_response[0] == 'SUCC':
+                # Message format: SUCC <id> <ip> <port> -> parts[1], parts[2], parts[3]
                 succ_id, succ_ip, succ_port = int(self.join_response[1]), self.join_response[2], int(self.join_response[3])
                 self.successor = (succ_id, succ_ip, succ_port)
                 print(f"Successor updated to: {self.successor}")
@@ -120,24 +95,6 @@ class ChordNode:
         else:
             print("JOIN failed: timeout waiting for response")
 
-
-
-
-    # def do_join(self, ip, port):
-    #     msg = f"JOIN {self.id} {self.ip} {self.chord_port}"  # <-- include node ID!
-    #     self.sock.sendto(pack_msg(msg), (str(ip), int(port)))
-    #     resp,_ = self.sock.recvfrom(UDP_BUFFER)
-    #     parts = unpack_msg(resp).split()
-    #     if parts[0] == 'SUCC' and len(parts) == 4:
-    #         self.successor = (int(parts[1]), parts[2], int(parts[3]))
-    #         print(f"Successor updated to: {self.successor}")
-    #     elif parts[0] == 'JOINOK' and parts[1] == '0':
-    #         # Old behavior, can keep or remove
-    #         self.successor = (numeric_id(ip, port), ip, port)
-    #     else:
-    #         print("JOIN failed", resp)
-
-
     def udp_listener(self):
         while self.running:
             try:
@@ -146,6 +103,7 @@ class ChordNode:
                 parts = msg.split()
                 cmd = parts[0]
 
+                # Adjusting index for command parts due to length prefix (e.g., cmd is now parts[0])
                 if cmd == 'FIND' and (len(parts) == 2 or len(parts) == 4):
                     find_id = int(parts[1])
 
@@ -156,16 +114,16 @@ class ChordNode:
                         origin_ip, origin_port = addr[0], addr[1]  # fallback
 
                     if self.successor and in_interval(find_id, self.id, self.successor[0], inclusive_right=True):
-                        reply = f"FNDOK {self.successor[0]} {self.successor[1]} {self.successor[2]}"
+                        reply = format_message(f"FNDOK {self.successor[0]} {self.successor[1]} {self.successor[2]}")
                         self.sock.sendto(pack_msg(reply), (origin_ip, origin_port))
                     else:
                         closest = self.closest_preceding_node(find_id)
                         if closest == (self.id, self.ip, self.chord_port):
-                            reply = f"FNDOK {self.id} {self.ip} {self.chord_port}"
+                            reply = format_message(f"FNDOK {self.id} {self.ip} {self.chord_port}")
                             self.sock.sendto(pack_msg(reply), (origin_ip, origin_port))
                         else:
                             try:
-                                msg = f"FIND {find_id} {origin_ip} {origin_port}"
+                                msg = format_message(f"FIND {find_id} {origin_ip} {origin_port}")
                                 self.sock.sendto(pack_msg(msg), (closest[1], closest[2]))
                             except Exception as e:
                                 print(f"[udp_listener] Error forwarding FIND: {e}")
@@ -182,22 +140,14 @@ class ChordNode:
                     self.notify((node_id, node_ip, node_port))
                     # reply with our successor
                     succ_id, succ_ip, succ_port = self.successor
-                    reply = f"SUCC {succ_id} {succ_ip} {succ_port}"
+                    reply = format_message(f"SUCC {succ_id} {succ_ip} {succ_port}")
                     self.sock.sendto(pack_msg(reply), addr)
 
                 elif cmd == 'NOTIFY' and len(parts) == 4:
                     pred_id = int(parts[1])
                     pred_ip = parts[2]
                     pred_port = int(parts[3])
-                    self.notify((pred_id, pred_ip, pred_port))  # <-- call notify here, NOT send_notify
-
-
-                # elif cmd == 'SUCC' and len(parts) == 4:
-                #     succ_id = int(parts[1])
-                #     succ_ip = parts[2]
-                #     succ_port = int(parts[3])
-                #     self.successor = (succ_id, succ_ip, succ_port)
-                #     print(f"[udp_listener] Successor updated to: {self.successor}")
+                    self.notify((pred_id, pred_ip, pred_port))
 
                 elif cmd == 'SUCC' and len(parts) == 4:
                     if self.join_response is None:
@@ -213,9 +163,9 @@ class ChordNode:
 
                 elif cmd == 'GETPRED':
                     if self.predecessor:
-                        reply = f"RESPRED {self.predecessor[0]} {self.predecessor[1]} {self.predecessor[2]}"
+                        reply = format_message(f"RESPRED {self.predecessor[0]} {self.predecessor[1]} {self.predecessor[2]}")
                     else:
-                        reply = f"RESPRED {self.id} {self.ip} {self.chord_port}"  # If no predecessor, reply with self
+                        reply = format_message(f"RESPRED {self.id} {self.ip} {self.chord_port}")  # If no predecessor, reply with self
                     self.sock.sendto(pack_msg(reply), addr)
 
                 elif cmd == 'RESPRED' and len(parts) == 4:
@@ -247,29 +197,42 @@ class ChordNode:
 
                     if filename in self.files:
                         # Found locally
-                        reply = f'SEROK {self.ip} {self.chord_port} "{filename}" {hops + 1}'
+                        reply = format_message(f'SEROK 1 {self.ip} {self.chord_port} {hops + 1} {filename}')
                         self.sock.sendto(pack_msg(reply), (origin_ip, origin_port))
                         self.stats['ans'] += 1
                         print(f"[Search] Found '{filename}' locally. Responded to {origin_ip}:{origin_port}")
                     else:
                         # Not found: forward to successor
                         if hops < 10:  # max hops (TTL) safeguard
-                            fwd_msg = f'SER {origin_ip} {origin_port} "{filename}" {hops + 1}'
+                            fwd_msg = format_message(f'SER {origin_ip} {origin_port} "{filename}" {hops + 1}')
                             self.sock.sendto(pack_msg(fwd_msg), (self.successor[1], self.successor[2]))
                             self.stats['fwd'] += 1
                             print(f"[Search] Forwarded '{filename}' to {self.successor}")
+                        else:
+                            # If hops exceed limit, send SEROK with 0 files
+                            reply = format_message(f'SEROK 0 {self.ip} {self.chord_port} {hops + 1}')
+                            self.sock.sendto(pack_msg(reply), (origin_ip, origin_port))
+                            print(f"[Search] File '{filename}' not found within hop limit. Responded with 0 files.")
+
 
                 elif cmd == 'SEROK' and len(parts) >= 5:
-                    src_ip = parts[1]
-                    src_port = int(parts[2])
-                    filename = " ".join(parts[3:-1]).strip('"')
-                    hops = int(parts[-1])
-                    print(f"[Search Result] '{filename}' found at {src_ip}:{src_port} in {hops} hops.")
+                    num_files = int(parts[1])
+                    src_ip = parts[2]
+                    src_port = int(parts[3])
+                    hops = int(parts[4])
+                    
+                    if num_files > 0:
+                        filenames = [f.strip('"') for f in parts[5:]]
+                        print(f"[Search Result] Files found at {src_ip}:{src_port} in {hops} hops: {', '.join(filenames)}")
+                    else:
+                        print(f"[Search Result] No files found for the request originating from {src_ip}:{src_port} in {hops} hops.")
 
-                # You can add additional commands like PING, PONG etc.
 
                 else:
                     print(f"[udp_listener] Unknown command: {cmd}")
+                    # Send generic ERROR for unknown commands
+                    error_reply = format_message("ERROR")
+                    self.sock.sendto(pack_msg(error_reply), addr)
 
             except Exception as e:
                 print(f"[udp_listener] Error: {e}")
@@ -283,16 +246,12 @@ class ChordNode:
         except Exception as e:
             print(f"[HandleFindOK] Error: {e}")
 
-
-
     def notify(self, potential_pred):
         pred_id, pred_ip, pred_port = potential_pred
         if (self.predecessor is None or
             in_interval(pred_id, self.predecessor[0], self.id)):
             self.predecessor = potential_pred
             print(f"[notify] Predecessor updated to: {self.predecessor}")
-
-
 
     def add_to_finger(self, nid, ip, port):
         for i in range(M):
@@ -319,7 +278,8 @@ class ChordNode:
 
                 # Try to find next live successor from finger table
                 updated = False
-                for finger in self.finger_table:
+                # Use a copy of finger to avoid issues if it's modified during iteration
+                for finger in list(self.finger):
                     fid, fip, fport = finger
                     if fid == self.id:
                         continue  # Skip self
@@ -341,14 +301,12 @@ class ChordNode:
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             sock.settimeout(timeout)
-            sock.sendto(pack_msg("PING"), (ip, port))
+            # Updated: Include message length for PING
+            sock.sendto(pack_msg(format_message("PING")), (ip, port))
             data, _ = sock.recvfrom(1024)
             return unpack_msg(data) == "PONG"
         except:
             return False
-
-            
-
 
     def fix_loop(self):
         i = 0
@@ -372,18 +330,16 @@ class ChordNode:
             except Exception as e:
                 print(f"[FixFingers] Error fixing finger {i}: {e}")
 
-
-
     def is_node_alive(self, ip, port):
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             sock.settimeout(1)
-            sock.sendto(b'PING', (ip, port))
+            # Updated: Include message length for PING
+            sock.sendto(pack_msg(format_message("PING")), (ip, port))
             data, _ = sock.recvfrom(1024)
-            return data == b'PONG'
+            return unpack_msg(data) == "PONG"
         except:
             return False
-
 
     def find_successor(self, id):
         if self.successor and in_interval(id, self.id, self.successor[0], inclusive_right=True):
@@ -393,17 +349,18 @@ class ChordNode:
             if closest == (self.id, self.ip, self.chord_port):
                 return self.successor
             try:
-                msg = f"FIND {id} {self.ip} {self.chord_port}"
+                # Updated: Include message length for FIND
+                msg = format_message(f"FIND {id} {self.ip} {self.chord_port}")
                 self.sock.sendto(pack_msg(msg), (closest[1], closest[2]))
 
                 data, _ = self.sock.recvfrom(UDP_BUFFER)
-                msg = unpack_msg(data).split()
-                if msg[0] == "FNDOK":
-                    return (int(msg[1]), msg[2], int(msg[3]))
+                msg_parts = unpack_msg(data).split()
+                if msg_parts[0] == "FNDOK":
+                    # FNDOK format: FNDOK <id> <ip> <port> -> parts[1], parts[2], parts[3]
+                    return (int(msg_parts[1]), msg_parts[2], int(msg_parts[3]))
             except Exception as e:
                 print(f"[find_successor] Error contacting node {closest}: {e}")
         return None
-
 
     def closest_preceding_node(self, id):
         for i in reversed(range(FINGER_SIZE)):
@@ -415,7 +372,9 @@ class ChordNode:
     def check_predecessor_loop(self):
         while self.running:
             time.sleep(CHECK_PREDECESSOR_INTERVAL)
-            # ping predecessor (omitted)
+            # if self.predecessor and not self.is_node_alive(self.predecessor[1], self.predecessor[2]):
+            #     print(f"Predecessor {self.predecessor} is not alive. Clearing predecessor.")
+            #     self.predecessor = None
 
     def send_get_predecessor(self, ip, port):
         try:
@@ -424,12 +383,14 @@ class ChordNode:
             if not (0 <= port <= 65535):
                 raise ValueError(f"Port out of valid range: {port}")
 
-            msg = "GETPRED"
+            # Updated: Include message length for GETPRED
+            msg = format_message("GETPRED")
             self.sock.sendto(pack_msg(msg), (ip, port))
             data, _ = self.sock.recvfrom(UDP_BUFFER)
-            msg = unpack_msg(data).split()
-            if msg[0] == "RESPRED":
-                return (int(msg[1]), msg[2], int(msg[3]))
+            msg_parts = unpack_msg(data).split()
+            if msg_parts[0] == "RESPRED":
+                # RESPRED format: RESPRED <id> <ip> <port> -> parts[1], parts[2], parts[3]
+                return (int(msg_parts[1]), msg_parts[2], int(msg_parts[3]))
         except Exception as e:
             print(f"[send_get_predecessor] Error: {e}")
         return None
@@ -441,13 +402,15 @@ class ChordNode:
             if not (0 <= port <= 65535):
                 raise ValueError(f"Port out of valid range: {port}")
 
-            msg = f"NOTIFY {nid} {my_ip} {my_port}"
+            # Updated: Include message length for NOTIFY
+            msg = format_message(f"NOTIFY {nid} {my_ip} {my_port}")
             self.sock.sendto(pack_msg(msg), (ip, port))
         except Exception as e:
             print(f"[send_notify] Error: {e}")
 
     def search(self, filename):
-        msg = f'SER {self.ip} {self.chord_port} "{filename}" 0'
+        # Updated: Include message length for SER
+        msg = format_message(f'SER {self.ip} {self.chord_port} "{filename}" 0')
         self.sock.sendto(pack_msg(msg), (self.successor[1], self.successor[2]))
         self.stats['sent'] += 1
 
@@ -459,17 +422,20 @@ class ChordNode:
         if self.predecessor and self.successor and self.successor != (self.id, self.ip, self.chord_port):
             # Notify predecessor to update its successor to my successor
             pred_id, pred_ip, pred_port = self.predecessor
-            msg = f"UPDATE_SUCCESSOR {self.successor[0]} {self.successor[1]} {self.successor[2]}"
+            # Updated: Include message length for UPDATE_SUCCESSOR
+            msg = format_message(f"UPDATE_SUCCESSOR {self.successor[0]} {self.successor[1]} {self.successor[2]}")
             self.sock.sendto(pack_msg(msg), (pred_ip, pred_port))
 
             # Notify successor to update its predecessor to my predecessor
             succ_id, succ_ip, succ_port = self.successor
-            msg = f"UPDATE_PREDECESSOR {pred_id} {pred_ip} {pred_port}"
+            # Updated: Include message length for UPDATE_PREDECESSOR
+            msg = format_message(f"UPDATE_PREDECESSOR {pred_id} {pred_ip} {pred_port}")
             self.sock.sendto(pack_msg(msg), (succ_ip, succ_port))
 
         # Unregister from bootstrap
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
             sock.settimeout(2)
+            # REG message format for BS remains unchanged (not part of Chord protocol)
             sock.sendto(pack_msg(f"UNREG {self.ip} {self.chord_port} {self.username}"), (BS_IP, BS_PORT))
             try:
                 data, _ = sock.recvfrom(1024)
@@ -497,6 +463,10 @@ if __name__ == "__main__":
                 elif cmd == "leave":
                     n.leave()
                     break
+                elif cmd == "stats":
+                    print(f"[{n.username}] Stats: Sent: {n.stats['sent']}, Received: {n.stats['recv']}, Forwarded: {n.stats['fwd']}, Answered: {n.stats['ans']}")
+                else:
+                    print("Unknown command. Available commands: search <filename>, files, leave, stats")
         except KeyboardInterrupt:
             print("\nKeyboardInterrupt detected. Attempting to leave the Chord network...")
             if 'n' in locals() and isinstance(n, ChordNode): # Ensure 'n' exists and is a ChordNode instance
