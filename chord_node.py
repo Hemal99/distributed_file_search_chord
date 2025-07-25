@@ -21,8 +21,10 @@ class ChordNode:
         self.finger = [(self.id, self.ip, self.chord_port)] * FINGER_SIZE
 
         # random 3–5 files
-        pool = [f"song{i}.mp3" for i in range(20)]
-        self.files = set(random.sample(pool, random.randint(3,5)))
+        with open("files.txt", "r") as f:
+            pool = [line.strip() for line in f if line.strip()]  
+
+        self.files = set(random.sample(pool, random.randint(3, 5)))
         self.running = True
 
         # stats
