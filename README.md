@@ -27,7 +27,7 @@ python chord_node.py 127.0.0.1 6002 7002 u2
 curl 127.0.0.1:7001/files
 ```
 
-## Output 
+### Output 
 
 ```
 StatusCode        : 200
@@ -44,3 +44,30 @@ RawContent        : HTTP/1.1 200 OK
 
 
 
+## Search files inside Node
+
+File Name - Gladiator.mp4
+
+```bash
+curl "http://127.0.0.1:7001/search?q=Gladiator."
+
+# you don't have to mention full name of the file that you are searching
+
+```
+
+### Output
+
+```
+StatusCode        : 200
+StatusDescription : OK
+Content           : {"matched":["Gladiator.mp4"]}
+
+RawContent        : HTTP/1.1 200 OK
+                    Connection: close
+                    Content-Length: 30
+                    Content-Type: application/json
+                    Date: Fri, 25 Jul 2025 08:50:12 GMT
+                    Server: Werkzeug/3.1.3 Python/3.13.5
+
+                    {"matched":["Gladiator.mp4"]}
+```
