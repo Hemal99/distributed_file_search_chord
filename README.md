@@ -3,19 +3,30 @@
 ## Overview
 
 - Bootstrap UDP server: handles REG/UNREG.
-- Chord nodes via `chord_node.py`: maintians finger tables, join, stabilize, search.
+- Chord nodes via `chord_node.py`: maintains finger tables, join, stabilize, search.
 - `file_service.py`: REST endpoint to download random 2–10 MB file content.
 
 ## Run Instructions
+
+Each command need to be run in a separate terminal.
 
 ```bash
 python bootstrap_server.py
 python chord_node.py 127.0.0.1 6001 7001 u1
 python chord_node.py 127.0.0.1 6002 7002 u2
-# Use CLI: `search <filename>`, `leave`, `files`
 ```
 
-## List files inside node
+## Funtionalities avaialbe in Node CLI prompt
+
+```bash
+# Use CLI: `search <filename>`, `leave`, `files`
+# Search files within network
+search filename
+# List files within node
+files
+# Leave the network
+leave
+```
 
 ### Ex- List all files from u1 server 
 
